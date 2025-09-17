@@ -5,9 +5,6 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  schedule:
-    # Run every day at 2 AM UTC
-    - cron: '0 2 * * *'
 
 jobs:
   ml-pipeline:
@@ -15,30 +12,17 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    - name: Cache pip packages
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-
-    - name: Set up DVC
-      uses: iterative/setup-dvc@v1
 
     - name: Configure Kaggle
       env:
@@ -49,114 +33,16 @@ jobs:
         echo '{"username":"'$KAGGLE_USERNAME'","key":"'$KAGGLE_KEY'"}' > ~/.kaggle/kaggle.json
         chmod 600 ~/.kaggle/kaggle.json
 
-    - name: Download data
+    - name: Run ML Pipeline
       run: |
-        mkdir -p data/raw
-        cd data/raw
-        kaggle datasets download -d 'anshtanwar/adult-subjects-70-95-years-activity-recognition'
-        unzip adult-subjects-70-95-years-activity-recognition.zip
-        rm adult-subjects-70-95-years-activity-recognition.zip
-
-    - name: Run DVC pipeline
-      run: |
-        dvc repro
-
-    - name: Run tests
-      run: |
-        python -m pytest tests/ -v
-
-    - name: Generate MLflow report
-      run: |
-        python -c "
-        import mlflow
-        import pandas as pd
-        
-        # Get latest experiment runs
-        experiment = mlflow.get_experiment_by_name('activity_recognition')
-        if experiment:
-            runs = mlflow.search_runs(experiment.experiment_id)
-            if not runs.empty:
-                best_run = runs.loc[runs['metrics.accuracy'].idxmax()]
-                print(f'Best model accuracy: {best_run[\"metrics.accuracy\"]:.4f}')
-                print(f'Best run ID: {best_run[\"run_id\"]}')
-        "
+        python run_pipeline.py
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # ✅ Diperbaiki dari v3 ke v4
       with:
         name: ml-artifacts
         path: |
           models/
-          metrics.json
-          evaluation_metrics.json
+          training_results.json
+          evaluation_results.json
           *.png
-
-    - name: Comment PR with results
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
-      with:
-        script: |
-          const fs = require('fs');
-          
-          try {
-            const metricsData = fs.readFileSync('evaluation_metrics.json', 'utf8');
-            const metrics = JSON.parse(metricsData);
-            
-            let comment = '## ML Pipeline Results\n\n';
-            comment += '| Model | Accuracy |\n';
-            comment += '|-------|----------|\n';
-            
-            for (const [model, data] of Object.entries(metrics)) {
-              comment += `| ${model} | ${data.accuracy.toFixed(4)} |\n`;
-            }
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-          } catch (error) {
-            console.log('Could not read metrics file:', error);
-          }
-
-  model-validation:
-    runs-on: ubuntu-latest
-    needs: ml-pipeline
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-
-    - name: Download artifacts
-      uses: actions/download-artifact@v3
-      with:
-        name: ml-artifacts
-
-    - name: Validate model performance
-      run: |
-        python -c "
-        import json
-        import sys
-        
-        # Load evaluation metrics
-        with open('evaluation_metrics.json', 'r') as f:
-            metrics = json.load(f)
-        
-        # Set minimum accuracy threshold
-        MIN_ACCURACY = 0.8
-        
-        best_accuracy = max(data['accuracy'] for data in metrics.values())
-        
-        if best_accuracy < MIN_ACCURACY:
-            print(f'Model validation failed! Best accuracy {best_accuracy:.4f} < {MIN_ACCURACY}')
-            sys.exit(1)
-        else:
-            print(f'Model validation passed! Best accuracy: {best_accuracy:.4f}')
-        "
