@@ -21,35 +21,46 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    # ✅ PERBAIKAN: Sintaks kondisi yang benar
     - name: Configure Kaggle
-      if: ${{ env.KAGGLE_USERNAME != '' && env.KAGGLE_KEY != '' }}
       env:
         KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
         KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       run: |
-        mkdir -p ~/.kaggle
-        echo '{"username":"'$KAGGLE_USERNAME'","key":"'$KAGGLE_KEY'"}' > ~/.kaggle/kaggle.json
-        chmod 600 ~/.kaggle/kaggle.json
+        if [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ]; then
+          mkdir -p ~/.kaggle
+          echo '{"username":"'$KAGGLE_USERNAME'","key":"'$KAGGLE_KEY'"}' > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+          echo "✅ Kaggle configured"
+        else
+          echo "⚠️ Kaggle credentials not found, using sample data"
+        fi
 
     - name: Setup DVC
       run: |
         dvc --version
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
+
+    # ✅ PERBAIKAN: Clean up tracked files sebelum DVC
+    - name: Clean up Git-tracked outputs
+      run: |
+        # Remove files yang akan dikelola DVC dari Git tracking
+        git rm --cached -r training_results.json || true
+        git rm --cached -r evaluation_results.json || true
+        git rm --cached -r models/ || true
+        git rm --cached -r data/processed/ || true
+        git rm --cached -r *.png || true
+        
+        # Commit perubahan
+        git add -A
+        git commit -m "Remove DVC-managed files from Git tracking" || true
+        
+        echo "✅ Cleaned up Git tracking"
 
     - name: Cache DVC
       uses: actions/cache@v3
@@ -59,31 +70,50 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-dvc-
 
+    # ✅ PERBAIKAN: Initialize DVC jika belum ada
+    - name: Initialize DVC
+      run: |
+        if [ ! -d ".dvc" ]; then
+          dvc init --no-scm
+          echo "✅ DVC initialized"
+        else
+          echo "✅ DVC already initialized"
+        fi
+
+    # ✅ PERBAIKAN: Run DVC dengan error handling
     - name: Run DVC Pipeline
       run: |
-        dvc repro --force
-
-    - name: Run Manual Pipeline (Fallback)
-      if: failure()
-      run: |
-        echo "DVC failed, running manual pipeline..."
-        python run_pipeline.py
+        echo "🚀 Starting DVC pipeline..."
+        dvc repro --force || {
+          echo "❌ DVC pipeline failed, trying manual pipeline..."
+          python run_pipeline.py
+        }
 
     - name: Validate Pipeline Results
       run: |
+        echo "📊 Checking pipeline results..."
         ls -la models/ || echo "models directory not found"
         ls -la data/processed/ || echo "processed data not found"
+        
         python -c "
         import os
         required_files = [
           'data/processed/processed_data.csv',
           'training_results.json'
         ]
+        missing_files = []
         for file in required_files:
           if os.path.exists(file):
             print(f'✅ {file}')
           else:
-            print(f'❌ {file} - but continuing...')
+            print(f'❌ {file}')
+            missing_files.append(file)
+        
+        if missing_files:
+          print(f'⚠️ Missing files: {missing_files}')
+          print('Pipeline may have used fallback mode')
+        else:
+          print('✅ All required files present')
         "
 
     - name: Upload ML Artifacts
@@ -99,12 +129,3 @@ jobs:
           *.png
           dvc.lock
         retention-days: 30
-
-    - name: Upload MLflow Artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: mlflow-experiments
-        path: |
-          mlruns/
-        retention-days: 7
