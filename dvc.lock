@@ -1,0 +1,27 @@
+schema: '2.0'
+stages:
+  data_preprocessing:
+    cmd: python src/data_preprocessing_robust.py
+    deps:
+    - path: src/data_preprocessing_robust.py
+      hash: md5
+      md5: 8753f58bf604c0bb80c4dadf6c45e770
+      size: 11181
+    params:
+      params.yaml:
+        data:
+          test_size: 0.3
+          random_state: 42
+          selected_labels:
+          - 1
+          - 6
+          - 7
+          window_size: 20
+        preprocessing:
+          undersampling: true
+          undersampling_random_state: 42
+    outs:
+    - path: data/processed/processed_data.csv
+      hash: md5
+      md5: dd5236af259b73d673cac27ea10a651b
+      size: 3116412
