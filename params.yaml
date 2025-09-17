@@ -1,0 +1,27 @@
+data:
+  test_size: 0.3
+  random_state: 42
+  selected_labels: [1, 6, 7]
+  window_size: 20
+
+preprocessing:
+  undersampling: true
+  undersampling_random_state: 42
+
+models:
+  random_forest:
+    n_estimators: 100
+    random_state: 42
+  
+  logistic_regression:
+    multi_class: "multinomial"
+    solver: "lbfgs"
+    max_iter: 1000
+  
+  svm:
+    kernel: "linear"
+    probability: true
+
+mlflow:
+  experiment_name: "activity_recognition"
+  tracking_uri: "mlruns"

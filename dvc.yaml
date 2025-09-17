@@ -1,0 +1,41 @@
+stages:
+  data_preprocessing:
+    cmd: python src/data_preprocessing.py
+    deps:
+    - src/data_preprocessing.py
+    - data/raw
+    params:
+    - data
+    - preprocessing
+    outs:
+    - data/processed/processed_data.csv
+
+  model_training:
+    cmd: python src/model_training.py
+    deps:
+    - src/model_training.py
+    - data/processed/processed_data.csv
+    params:
+    - models
+    - data.test_size
+    - data.random_state
+    outs:
+    - models/random_forest_model.pkl
+    - models/logistic_regression_model.pkl
+    - models/svm_model.pkl
+    metrics:
+    - metrics.json
+
+  evaluation:
+    cmd: python src/evaluation.py
+    deps:
+    - src/evaluation.py
+    - models/random_forest_model.pkl
+    - models/logistic_regression_model.pkl
+    - models/svm_model.pkl
+    - data/processed/processed_data.csv
+    params:
+    - data.test_size
+    - data.random_state
+    metrics:
+    - evaluation_metrics.json

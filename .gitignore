@@ -1,0 +1,39 @@
+# Data files
+*.csv
+data/raw/*
+!data/raw/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# DVC
+/data/processed
+/models/*.pkl
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kaggle
+kaggle.json
