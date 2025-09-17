@@ -1,4 +1,4 @@
-name: ML Pipeline
+name: ML Pipeline with DVC
 
 on:
   push:
@@ -13,18 +13,29 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # ✅ Penting untuk DVC
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Configure Kaggle
+    - name: Configure Kaggle (Optional)
+      if: ${{ secrets.KAGGLE_USERNAME && secrets.KAGGLE_KEY }}
       env:
         KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
         KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
@@ -33,16 +44,75 @@ jobs:
         echo '{"username":"'$KAGGLE_USERNAME'","key":"'$KAGGLE_KEY'"}' > ~/.kaggle/kaggle.json
         chmod 600 ~/.kaggle/kaggle.json
 
-    - name: Run ML Pipeline
+    # ✅ DVC Setup
+    - name: Setup DVC
       run: |
+        dvc --version
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
+
+    # ✅ DVC Cache (Optional tapi sangat recommended)
+    - name: Cache DVC
+      uses: actions/cache@v3
+      with:
+        path: .dvc/cache
+        key: ${{ runner.os }}-dvc-${{ hashFiles('**/dvc.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-dvc-
+
+    # ✅ Jalankan DVC Pipeline
+    - name: Run DVC Pipeline
+      run: |
+        dvc repro --force
+
+    # ✅ Alternative: Jalankan tanpa DVC jika ada masalah
+    - name: Run Manual Pipeline (Fallback)
+      if: failure()
+      run: |
+        echo "DVC failed, running manual pipeline..."
         python run_pipeline.py
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4  # ✅ Diperbaiki dari v3 ke v4
+    # ✅ Validate Results
+    - name: Validate Pipeline Results
+      run: |
+        ls -la models/
+        ls -la data/processed/
+        python -c "
+        import os
+        required_files = [
+          'data/processed/processed_data.csv',
+          'models/random_forest_model.pkl',
+          'training_results.json'
+        ]
+        for file in required_files:
+          if os.path.exists(file):
+            print(f'✅ {file}')
+          else:
+            print(f'❌ {file}')
+            exit(1)
+        "
+
+    # ✅ Upload Artifacts
+    - name: Upload ML Artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
-        name: ml-artifacts
+        name: ml-pipeline-results
         path: |
           models/
+          data/processed/
           training_results.json
           evaluation_results.json
           *.png
+          dvc.lock
+        retention-days: 30
+
+    # ✅ MLflow Artifacts (jika ada)
+    - name: Upload MLflow Artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: mlflow-experiments
+        path: |
+          mlruns/
+        retention-days: 7
